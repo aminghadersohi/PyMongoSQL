@@ -32,6 +32,19 @@ else:
     from sqlalchemy.engine.interfaces import Dialect
 
 
+def _partiql_keywords() -> set:
+    """Lower-case PartiQL keywords, e.g. ``count`` or ``value``.
+
+    The grammar rejects a keyword used as a bare identifier (``COUNT(*) AS count``
+    is a syntax error), so SQLAlchemy must quote these names.
+    """
+    import re
+
+    from pymongosql.sql.partiql.PartiQLLexer import PartiQLLexer
+
+    return {name.strip("'").lower() for name in PartiQLLexer.literalNames if re.fullmatch(r"'[A-Za-z_]+'", name or "")}
+
+
 class PyMongoSQLIdentifierPreparer(compiler.IdentifierPreparer):
     """MongoDB-specific identifier preparer.
 
@@ -39,35 +52,38 @@ class PyMongoSQLIdentifierPreparer(compiler.IdentifierPreparer):
     from SQL databases.
     """
 
-    reserved_words = set(
-        [
-            # MongoDB reserved words and operators
-            "$eq",
-            "$ne",
-            "$gt",
-            "$gte",
-            "$lt",
-            "$lte",
-            "$in",
-            "$nin",
-            "$and",
-            "$or",
-            "$not",
-            "$nor",
-            "$exists",
-            "$type",
-            "$mod",
-            "$regex",
-            "$text",
-            "$where",
-            "$all",
-            "$elemMatch",
-            "$size",
-            "$bitsAllClear",
-            "$bitsAllSet",
-            "$bitsAnyClear",
-            "$bitsAnySet",
-        ]
+    reserved_words = (
+        set(
+            [
+                # MongoDB reserved words and operators
+                "$eq",
+                "$ne",
+                "$gt",
+                "$gte",
+                "$lt",
+                "$lte",
+                "$in",
+                "$nin",
+                "$and",
+                "$or",
+                "$not",
+                "$nor",
+                "$exists",
+                "$type",
+                "$mod",
+                "$regex",
+                "$text",
+                "$where",
+                "$all",
+                "$elemMatch",
+                "$size",
+                "$bitsAllClear",
+                "$bitsAllSet",
+                "$bitsAnyClear",
+                "$bitsAnySet",
+            ]
+        )
+        | _partiql_keywords()
     )
 
     def __init__(self, dialect: Dialect, **kwargs: Any) -> None:

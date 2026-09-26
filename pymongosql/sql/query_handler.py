@@ -34,6 +34,12 @@ class QueryParseResult:
 
     # SQL aggregate functions detected in SELECT (COUNT, SUM, AVG, MIN, MAX)
     aggregate_functions: List[Dict[str, Any]] = field(default_factory=list)
+    # SELECT items in order: {"field": name, "alias": alias} or {"aggregate": index}
+    select_items: List[Dict[str, Any]] = field(default_factory=list)
+    # GROUP BY field paths
+    group_by: List[str] = field(default_factory=list)
+    # Clauses that are parsed but cannot be translated faithfully
+    unsupported_clauses: List[str] = field(default_factory=list)
 
     # Subquery info (for wrapped subqueries, e.g., Superset outering)
     subquery_plan: Optional[Any] = None
@@ -137,15 +143,18 @@ class SelectHandler(BaseHandler, ContextUtilsMixin):
                 if agg_match:
                     func_name = agg_match.group(1).upper()
                     func_arg = agg_match.group(2)
+                    parse_result.select_items.append({"aggregate": len(parse_result.aggregate_functions)})
                     parse_result.aggregate_functions.append(
                         {
                             "function": func_name,
                             "argument": func_arg,
                             "alias": alias or field_name,
+                            "expression": field_name,
                         }
                     )
                     continue
 
+                parse_result.select_items.append({"field": field_name, "alias": alias})
                 # Use MongoDB standard projection format: {field: 1} to include field
                 projection[field_name] = 1
                 # Store alias if present
@@ -182,7 +191,7 @@ class SelectHandler(BaseHandler, ContextUtilsMixin):
                 # Pattern: expr symbolPrimitive (without AS)
                 alias = item.children[1].getText()
 
-        return field_name, alias
+        return field_name, self.unquote_identifier(alias)
 
 
 class FromHandler(BaseHandler):
