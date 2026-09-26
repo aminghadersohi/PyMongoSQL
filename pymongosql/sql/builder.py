@@ -111,8 +111,43 @@ class ExecutionPlanBuilder:
             return ExecutionPlanBuilder._build_query_plan(parse_result)
 
     @staticmethod
+    def _strip_collection_qualifier(parse_result: "QueryParseResult") -> None:
+        """Resolve ``collection.field`` references to ``field``.
+
+        SQL qualifies a column with the table it belongs to, while MongoDB reads a
+        dotted name as an embedded-document path. Without this, a qualified
+        reference such as ``users.name`` reads the missing path ``users.name``
+        and silently returns NULL. As in SQL, the collection name takes
+        precedence over an embedded document of the same name.
+        """
+        collection = parse_result.collection
+        if not collection:
+            return
+        prefix = f"{collection}."
+
+        def strip(name: Any) -> Any:
+            if isinstance(name, str) and name.startswith(prefix) and len(name) > len(prefix):
+                return name[len(prefix) :]
+            return name
+
+        def strip_filter(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {strip(k): strip_filter(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [strip_filter(v) for v in value]
+            return value
+
+        parse_result.projection = {strip(k): v for k, v in parse_result.projection.items()}
+        parse_result.column_aliases = {strip(k): v for k, v in parse_result.column_aliases.items()}
+        parse_result.sort_fields = [{strip(k): v for k, v in spec.items()} for spec in parse_result.sort_fields]
+        parse_result.filter_conditions = strip_filter(parse_result.filter_conditions)
+        for func_info in parse_result.aggregate_functions:
+            func_info["argument"] = strip(func_info["argument"])
+
+    @staticmethod
     def _build_query_plan(parse_result: "QueryParseResult") -> "QueryExecutionPlan":
         """Build a query execution plan from SELECT parsing."""
+        ExecutionPlanBuilder._strip_collection_qualifier(parse_result)
 
         # Auto-generate aggregate pipeline for SQL aggregate functions (COUNT, SUM, etc.)
         if getattr(parse_result, "aggregate_functions", None):

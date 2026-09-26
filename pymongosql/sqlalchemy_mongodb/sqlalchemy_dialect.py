@@ -84,14 +84,15 @@ class PyMongoSQLCompiler(compiler.SQLCompiler):
     Handles SQL compilation specific to MongoDB's query patterns.
     """
 
-    def visit_column(self, column, **kwargs):
-        """Handle column references for MongoDB field names."""
-        name = column.name
-        # Handle MongoDB-specific field name patterns
-        if name.startswith("_"):
-            # MongoDB system fields like _id
-            return self.preparer.quote(name)
-        return super().visit_column(column, **kwargs)
+    def visit_column(self, column, include_table=True, **kwargs):
+        """Render column references without a table qualifier.
+
+        A statement reads a single collection, and PyMongoSQL resolves a dotted
+        reference such as ``users.name`` as the embedded-document path ``name``
+        inside a field ``users``. SQLAlchemy qualifies every table-bound column,
+        so a qualified reference would silently read NULL.
+        """
+        return super().visit_column(column, include_table=False, **kwargs)
 
 
 class PyMongoSQLDDLCompiler(compiler.DDLCompiler):
