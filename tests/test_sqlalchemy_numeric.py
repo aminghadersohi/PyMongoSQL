@@ -47,6 +47,13 @@ class TestOffline:
         value = result_processor(sa.Float())(Decimal128("1.25"))
         assert value == 1.25 and type(value) is float
 
+    def test_integer_columns_return_int_for_int64(self):
+        from bson import Int64
+
+        for type_ in (sa.Integer(), sa.BigInteger()):
+            value = result_processor(type_)(Int64(2**62))
+            assert value == 2**62 and type(value) is int
+
     def test_numeric_column_passes_other_values_through(self):
         processor = result_processor(sa.Numeric(31, 10))
         assert processor(None) is None
@@ -73,5 +80,17 @@ class TestLive:
                 values = sorted(amounts)
             assert values == [TINY, EXACT]
             assert all(type(v) is Decimal for v in values)
+        finally:
+            conn.database.drop_collection(table.name)
+
+    def test_int64_roundtrip(self, sqlalchemy_engine, conn):
+        table = sa.Table("test_int64_roundtrip", sa.MetaData(), sa.Column("big", sa.BigInteger))
+        conn.database.drop_collection(table.name)
+        try:
+            conn.database[table.name].insert_many([{"big": 2**63 - 1}, {"big": -(2**63)}])
+            with sqlalchemy_engine.connect() as connection:
+                values = sorted(connection.execute(sa.select(table.c.big)).scalars())
+            assert values == [-(2**63), 2**63 - 1]
+            assert all(type(v) is int for v in values)
         finally:
             conn.database.drop_collection(table.name)

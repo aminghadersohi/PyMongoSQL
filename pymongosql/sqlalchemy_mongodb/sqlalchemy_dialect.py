@@ -188,6 +188,18 @@ class _MongoNumeric(sqltypes.Numeric):
         return _decode_decimal128(super().result_processor(dialect, coltype))
 
 
+class _MongoInteger(sqltypes.Integer):
+    """Integer that returns ``int`` for BSON int64 values (``bson.Int64``)."""
+
+    def result_processor(self, dialect, coltype):
+        from bson import Int64
+
+        def process(value):
+            return int(value) if isinstance(value, Int64) else value
+
+        return process
+
+
 class _MongoFloat(sqltypes.Float):
     """Float that returns ``float`` (or Decimal) for Decimal128 values."""
 
@@ -256,7 +268,7 @@ class PyMongoSQLDialect(default.DefaultDialect):
     supports_native_decimal = True  # BSON Decimal128
     # PyMongo returns Decimal128, not decimal.Decimal; convert on the way out.
     supports_native_uuid = True  # BSON binary subtype 4
-    colspecs = {sqltypes.Numeric: _MongoNumeric, sqltypes.Float: _MongoFloat}
+    colspecs = {sqltypes.Numeric: _MongoNumeric, sqltypes.Float: _MongoFloat, sqltypes.Integer: _MongoInteger}
     if hasattr(sqltypes, "Uuid"):
         colspecs[sqltypes.Uuid] = _MongoUuid
     supports_native_boolean = True  # BSON Boolean
