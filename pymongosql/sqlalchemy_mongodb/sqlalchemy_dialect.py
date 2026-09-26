@@ -384,11 +384,12 @@ class PyMongoSQLDialect(default.DefaultDialect):
                 # Sample a few documents to infer schema
                 sample_docs = list(collection.find().limit(10))
                 if sample_docs:
-                    # Collect all unique field names and types
+                    # Collect all unique field names and types. A null only
+                    # types a field that no sampled document gives a value.
                     field_types = {}
                     for doc in sample_docs:
                         for field_name, value in doc.items():
-                            if field_name not in field_types:
+                            if field_types.get(field_name, "null") == "null":
                                 field_types[field_name] = self._infer_bson_type(value)
 
                     # Convert to SQLAlchemy column format
@@ -430,7 +431,7 @@ class PyMongoSQLDialect(default.DefaultDialect):
         """Infer BSON type from a Python value."""
         from datetime import datetime
 
-        from bson import ObjectId
+        from bson import Binary, Decimal128, Int64, ObjectId
 
         if isinstance(value, ObjectId):
             return "objectId"
@@ -438,8 +439,14 @@ class PyMongoSQLDialect(default.DefaultDialect):
             return "string"
         elif isinstance(value, bool):
             return "bool"
+        elif isinstance(value, Int64):
+            return "long"
         elif isinstance(value, int):
             return "int"
+        elif isinstance(value, Decimal128):
+            return "decimal"
+        elif isinstance(value, (Binary, bytes)):
+            return "binData"
         elif isinstance(value, float):
             return "double"
         elif isinstance(value, datetime):
@@ -469,7 +476,7 @@ class PyMongoSQLDialect(default.DefaultDialect):
             "object": types.JSON,
             "binData": types.LargeBinary,
         }
-        return type_map.get(mongo_type.lower(), types.String)
+        return type_map.get(mongo_type, types.String)
 
     def get_pk_constraint(self, connection, table_name: str, schema: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """Get primary key constraint info.
