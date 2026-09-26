@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 
 from sqlalchemy import pool, types
 from sqlalchemy.engine import default, url
-from sqlalchemy.sql import compiler
+from sqlalchemy.sql import compiler, sqltypes
 from sqlalchemy.sql.sqltypes import NULLTYPE
 
 import pymongosql
@@ -151,6 +151,32 @@ class PyMongoSQLTypeCompiler(compiler.GenericTypeCompiler):
         return "BOOL"
 
 
+def _decode_decimal128(processor):
+    """Wrap a Numeric result processor so it also accepts BSON Decimal128."""
+    from bson import Decimal128
+
+    def process(value):
+        if isinstance(value, Decimal128):
+            value = value.to_decimal()
+        return processor(value) if processor else value
+
+    return process
+
+
+class _MongoNumeric(sqltypes.Numeric):
+    """Numeric that returns ``decimal.Decimal`` (or float) for Decimal128 values."""
+
+    def result_processor(self, dialect, coltype):
+        return _decode_decimal128(super().result_processor(dialect, coltype))
+
+
+class _MongoFloat(sqltypes.Float):
+    """Float that returns ``float`` (or Decimal) for Decimal128 values."""
+
+    def result_processor(self, dialect, coltype):
+        return _decode_decimal128(super().result_processor(dialect, coltype))
+
+
 class PyMongoSQLDialect(default.DefaultDialect):
     """SQLAlchemy dialect for PyMongoSQL.
 
@@ -174,6 +200,8 @@ class PyMongoSQLDialect(default.DefaultDialect):
     supports_empty_inserts = True
     supports_multivalues_insert = True
     supports_native_decimal = True  # BSON Decimal128
+    # PyMongo returns Decimal128, not decimal.Decimal; convert on the way out.
+    colspecs = {sqltypes.Numeric: _MongoNumeric, sqltypes.Float: _MongoFloat}
     supports_native_boolean = True  # BSON Boolean
     supports_sequences = False  # No sequences in MongoDB
     supports_native_enum = False  # No native enums
