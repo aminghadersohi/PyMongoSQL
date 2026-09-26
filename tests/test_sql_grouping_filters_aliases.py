@@ -72,6 +72,10 @@ class TestPlans:
         p = plan("SELECT _id FROM t WHERE name NOT LIKE 'x.%'")
         assert p.filter_stage == {"name": {"$not": {"$regex": "^x\\..*"}}}
 
+    def test_double_dash_inside_literal_is_not_a_comment(self):
+        p = plan("SELECT _id FROM t WHERE name = 'a -- b' AND n = 1 -- trailing comment")
+        assert p.filter_stage == {"$and": [{"name": "a -- b"}, {"n": 1}]}
+
     def test_escaped_quote_in_string_literal(self):
         assert plan("SELECT _id FROM t WHERE name = 'O''Brien'").filter_stage == {"name": "O'Brien"}
 
