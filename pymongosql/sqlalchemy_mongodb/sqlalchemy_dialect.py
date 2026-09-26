@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import uuid
 from typing import Any, Dict, List, Optional, Tuple, Type
 from urllib.parse import quote_plus
 
@@ -194,6 +195,42 @@ class _MongoFloat(sqltypes.Float):
         return _decode_decimal128(super().result_processor(dialect, coltype))
 
 
+class _MongoUuid(getattr(sqltypes, "Uuid", sqltypes.TypeEngine)):  # Uuid is new in SQLAlchemy 2.0
+    """Uuid stored as BSON binary subtype 4 (the standard UUID representation).
+
+    PyMongo returns ``uuid.UUID`` under ``uuidRepresentation=standard`` and a
+    subtype-4 ``Binary`` otherwise; the generic non-native Uuid processors expect a
+    hex string and fail on both. Legacy subtype 3 is left as ``Binary``: its byte
+    order depends on the driver that wrote it.
+    """
+
+    def bind_processor(self, dialect):
+        from bson.binary import Binary
+
+        def process(value):
+            if value is None:
+                return None
+            if not isinstance(value, uuid.UUID):
+                value = uuid.UUID(str(value))
+            return Binary.from_uuid(value)
+
+        return process
+
+    def result_processor(self, dialect, coltype):
+        from bson.binary import UUID_SUBTYPE, Binary
+
+        def process(value):
+            if isinstance(value, Binary) and value.subtype == UUID_SUBTYPE:
+                value = value.as_uuid()
+            elif isinstance(value, str):
+                value = uuid.UUID(value)
+            if isinstance(value, uuid.UUID) and not self.as_uuid:
+                return str(value)
+            return value
+
+        return process
+
+
 class PyMongoSQLDialect(default.DefaultDialect):
     """SQLAlchemy dialect for PyMongoSQL.
 
@@ -218,7 +255,10 @@ class PyMongoSQLDialect(default.DefaultDialect):
     supports_multivalues_insert = True
     supports_native_decimal = True  # BSON Decimal128
     # PyMongo returns Decimal128, not decimal.Decimal; convert on the way out.
+    supports_native_uuid = True  # BSON binary subtype 4
     colspecs = {sqltypes.Numeric: _MongoNumeric, sqltypes.Float: _MongoFloat}
+    if hasattr(sqltypes, "Uuid"):
+        colspecs[sqltypes.Uuid] = _MongoUuid
     supports_native_boolean = True  # BSON Boolean
     supports_sequences = False  # No sequences in MongoDB
     supports_native_enum = False  # No native enums
